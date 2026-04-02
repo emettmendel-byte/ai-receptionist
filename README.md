@@ -2,6 +2,15 @@
 
 Demo-quality Slack bot for care coordination: intent classification with confidence, threaded session memory, scheduled reminders via `chat.scheduleMessage`, human handoff packages, **Sully-style receptionist stubs** (insurance, appointment change, patient comm drafts, care navigation, pre-visit intake), **clinic-rules slot hints** (primary + alternates), **policy red-line** short-circuit to handoff, **SQLite audit lines** with a PHI heuristic flag, and stubbed tool calls (no real EHR/calendar/payer APIs).
 
+## Operability (local + cloud)
+
+This project is designed to run in two practical modes:
+
+- **Local mode (development):** run on your machine with local Ollama (`OLLAMA_HOST=http://127.0.0.1:11434`) using `make dev` or `npm run dev`.
+- **Cloud mode (shared use):** deploy to Render so teammates can use the Slackbot without your laptop running. Render setup assets are included in this repo (`render.yaml`, `.env.production.example`, and `docs/render-deployment.md`).
+
+In both modes, the same bot logic is used; only runtime environment and secrets change.
+
 ## What this demonstrates
 
 | Requirement | How it shows up |
@@ -167,6 +176,17 @@ Production-ish run after build:
 npm run build
 npm start
 ```
+
+### Local vs Render at a glance
+
+- **Run locally with Ollama:**
+  - Start Ollama (`ollama serve`)
+  - Keep `OLLAMA_HOST` as localhost
+  - Use `make dev`
+- **Run in Render cloud:**
+  - Deploy from this repo (recommended via `render.yaml`)
+  - Set production env vars from `.env.production.example`
+  - Use Render logs/health checks + Slack smoke checklist for verification
 
 ### Slack app setup (summary)
 
