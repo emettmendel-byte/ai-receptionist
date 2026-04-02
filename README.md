@@ -26,7 +26,7 @@ In both modes, the same bot logic is used; only runtime environment and secrets 
 
 ## AI receptionist capabilities
 
-The prototype receptionist supports the following thread-safe capabilities:
+The prototype receptionist, mirroring a **receptionist surface** similar in spirit to [Sully.ai — AI Receptionist](https://www.sully.ai/agents/receptionist), supports the following thread-safe capabilities:
 
 - **Schedule + alternatives:** shows open times, proposes primary + alternates from clinic config, supports booking confirmations.
 - **Insurance eligibility check:** returns mock payer-style eligibility results (`insurance_eligibility_check`).
@@ -38,40 +38,6 @@ The prototype receptionist supports the following thread-safe capabilities:
 - **FAQ responses:** returns in-repo snippets when available, or short LLM-generated answers.
 - **Policy red-line safety:** crisis/policy phrases force immediate handoff and bypass normal routing.
 - **Low confidence / human escalation:** unified handoff package with context, rationale, and suggested next action.
-
-## Integration-first mode (API-like)
-
-You can run the receptionist as a channel adapter + integration core:
-
-- Slack remains the front door for coordinators.
-- Core actions are centralized in [`src/core/actions.ts`](src/core/actions.ts).
-- Providers are selected via registry in [`src/integrations/registry.ts`](src/integrations/registry.ts).
-- Current implementation ships with `INTEGRATION_PROVIDER=stub`, but provider contracts are defined in [`src/integrations/types.ts`](src/integrations/types.ts) so real adapters can be plugged in with minimal router changes.
-
-Optional HTTP API server (for system-to-system calls):
-
-- `GET /healthz`, `GET /readyz`
-- `GET /availability`
-- `POST /appointments/book`
-- `POST /appointments/change`
-- `POST /eligibility/check`
-- `POST /intake/submit`
-- `POST /drafts/patient-message`
-
-The server is implemented in [`src/apiServer.ts`](src/apiServer.ts) and is enabled with `API_SERVER_ENABLED=1`.
-
-For hosted deployment (recommended: Render + Socket Mode), use:
-
-- [`render.yaml`](render.yaml) for service blueprint
-- [`.env.production.example`](.env.production.example) for production env baseline
-- [`docs/render-deployment.md`](docs/render-deployment.md) for step-by-step setup
-- [`docs/slack-smoke-checklist.md`](docs/slack-smoke-checklist.md) for workspace verification
-- [`docs/ops-hardening-checklist.md`](docs/ops-hardening-checklist.md) for alerts, token rotation, and on-call ownership
-
-LLM provider behavior:
-
-- If `GEMINI_API_KEY` is set, the app uses Gemini first (`GEMINI_MODEL` / `GEMINI_API_BASE`).
-- If Gemini fails at runtime, calls automatically fall back to Ollama (`OLLAMA_HOST` / `OLLAMA_MODEL`).
 
 ## Continuation plan (demo -> real scenarios via API)
 
@@ -127,25 +93,6 @@ Use this phased plan to move from prototype to real Greens workflows while keepi
 - Feature flags defined per clinic/tenant.
 - Runbook in [`docs/integration-runbook.md`](docs/integration-runbook.md) adopted by on-call + ops.
 
-## Sully-style demo narrative (prototype / stub)
-
-Use this to mirror a **receptionist surface** similar in spirit to [Sully.ai — AI Receptionist](https://www.sully.ai/agents/receptionist). For the full capability list and expected behavior, use the canonical section above: **AI receptionist capabilities**.
-
-Suggested demo flow order:
-
-1. Availability/scheduling
-2. Insurance check
-3. Appointment changes
-4. Patient comm draft
-5. Care navigation
-6. Pre-visit intake
-7. Reminder
-8. FAQ
-9. Policy red-line escalation
-10. Low-confidence/human handoff
-
-**Non-goals:** no PHI-grade compliance review, no real calendar/EHR/payer/SMS, API keys via env only.
-
 ## How the Slackbot runs
 
 ### Local runtime
@@ -191,16 +138,6 @@ Structured logs to stdout for each handled message:
 ```json
 {"type":"receptionist_audit","session_key":"…","user_id":"…","intent":"schedule_inquiry","confidence":0.88,"path":"automated","phi_flag":false,"action_summary":"routed:schedule_inquiry","text_preview":"…"}
 ```
-
-## Regression (classifier)
-
-With Ollama running and the model available:
-
-```bash
-npm run regression
-```
-
-Prints intent/confidence for every golden phrase in [`src/intents.ts`](src/intents.ts) and counts mismatches.
 
 ## Automated tests (Vitest)
 
@@ -277,18 +214,6 @@ Reliability + safety primitives included:
 
 Operational onboarding + staged rollout guidance is in [`docs/integration-runbook.md`](docs/integration-runbook.md).
 Hosted storage options are documented in [`docs/storage-strategy.md`](docs/storage-strategy.md).
-
-## Environment
-
-See [`.env.example`](.env.example). Notable optional keys:
-
-- `CLINIC_HOURS_PATH` — JSON file for slot hints (default: `./config/clinic-hours.sample.json`).
-- `POLICY_REDLINES_PATH` — JSON with `patterns` (forced handoff) and `phi_audit_patterns` (audit flag only).
-- `INTEGRATION_PROVIDER` — provider registry selector (default: `stub`).
-- `API_SERVER_ENABLED`, `API_SERVER_PORT`, `API_SERVER_AUTH_TOKEN` — API mode controls.
-- `INTEGRATION_MAX_RETRIES`, `INTEGRATION_RETRY_BASE_MS`, `INTEGRATION_CIRCUIT_FAILURES`, `INTEGRATION_CIRCUIT_OPEN_MS` — provider reliability controls.
-- `PILOT_MODE` + `FEATURE_*` flags — staged rollout toggles.
-- `REDACT_LOGS` — redact sensitive patterns in logs/audit previews.
 
 ## License
 
