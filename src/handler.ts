@@ -39,6 +39,30 @@ function parentThreadTs(threadTs: string | undefined, messageTs: string | undefi
   return threadTs ?? messageTs ?? "";
 }
 
+function intentReasoning(c: Classification): string {
+  if (c.rationale?.trim()) return c.rationale.trim();
+  if (c.needs_clarification) return "Model requested clarification before taking action.";
+  switch (c.intent) {
+    case "appointment_change":
+      return "Detected appointment change workflow (cancel/reschedule/waitlist).";
+    case "pre_visit_intake":
+      return "Detected pre-visit intake checklist flow.";
+    case "faq":
+      return "Detected informational/policy question.";
+    default:
+      return "Detected best-fit intent from the latest message.";
+  }
+}
+
+function withIntentFooter(text: string, c: Classification): string {
+  const conf = Number.isFinite(c.confidence) ? c.confidence : 0;
+  return (
+    `${text}\n\n` +
+    `_Intent:_ \`${c.intent}\` • _Confidence:_ *${conf.toFixed(2)}*\n` +
+    `_Reasoning:_ ${intentReasoning(c)}`
+  );
+}
+
 function audit(
   key: string,
   userId: string,
@@ -189,8 +213,16 @@ export async function handleUserMessage(params: {
     state.appointment_flow = r.flow ?? null;
     state.clarify_count = 0;
     saveSession(key, state);
-    await params.say({ text: r.message, thread_ts: pThread });
-    appendTurn(key, "assistant", r.message);
+    const flowClassification: Classification = {
+      intent: "appointment_change",
+      confidence: 1,
+      entities: {},
+      needs_clarification: false,
+      rationale: "Continuing active appointment change flow in this thread.",
+    };
+    const msg = withIntentFooter(r.message, flowClassification);
+    await params.say({ text: msg, thread_ts: pThread });
+    appendTurn(key, "assistant", msg);
     const replied = new Date().toISOString();
     logMetric({
       session_key: key,
@@ -215,8 +247,16 @@ export async function handleUserMessage(params: {
     state.intake_flow = r.flow ?? null;
     state.clarify_count = 0;
     saveSession(key, state);
-    await params.say({ text: r.message, thread_ts: pThread });
-    appendTurn(key, "assistant", r.message);
+    const intakeClassification: Classification = {
+      intent: "pre_visit_intake",
+      confidence: 1,
+      entities: {},
+      needs_clarification: false,
+      rationale: "Continuing active pre-visit intake flow in this thread.",
+    };
+    const msg = withIntentFooter(r.message, intakeClassification);
+    await params.say({ text: msg, thread_ts: pThread });
+    appendTurn(key, "assistant", msg);
     const replied = new Date().toISOString();
     logMetric({
       session_key: key,
@@ -241,8 +281,6 @@ export async function handleUserMessage(params: {
     state.clarify_count = 0;
     state.last_intent = "faq";
     saveSession(key, state);
-    await params.say({ text: capabilitiesReply, thread_ts: pThread });
-    appendTurn(key, "assistant", capabilitiesReply);
     const capClassification: Classification = {
       intent: "faq",
       confidence: 1,
@@ -250,6 +288,9 @@ export async function handleUserMessage(params: {
       needs_clarification: false,
       rationale: "Matched meta/capabilities patterns (not schedule_inquiry)",
     };
+    const msg = withIntentFooter(capabilitiesReply, capClassification);
+    await params.say({ text: msg, thread_ts: pThread });
+    appendTurn(key, "assistant", msg);
     const replied = new Date().toISOString();
     logMetric({
       session_key: key,
@@ -321,11 +362,9 @@ export async function handleUserMessage(params: {
   if (classification.needs_clarification && classification.clarification_question) {
     state.clarify_count += 1;
     saveSession(key, state);
-    await params.say({
-      text: classification.clarification_question,
-      thread_ts: pThread,
-    });
-    appendTurn(key, "assistant", classification.clarification_question);
+    const msg = withIntentFooter(classification.clarification_question, classification);
+    await params.say({ text: msg, thread_ts: pThread });
+    appendTurn(key, "assistant", msg);
     const replied = new Date().toISOString();
     logMetric({
       session_key: key,
@@ -365,8 +404,9 @@ export async function handleUserMessage(params: {
     state.last_booked_appointment_id = reply.last_booked_appointment_id;
   }
   saveSession(key, state);
-  await params.say({ text: reply.text, thread_ts: pThread });
-  appendTurn(key, "assistant", reply.text);
+  const finalMsg = withIntentFooter(reply.text, classification);
+  await params.say({ text: finalMsg, thread_ts: pThread });
+  appendTurn(key, "assistant", finalMsg);
 
   const replied = new Date().toISOString();
   logMetric({
