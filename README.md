@@ -129,53 +129,41 @@ Use this phased plan to move from prototype to real Greens workflows while keepi
 
 ## Sully-style demo narrative (prototype / stub)
 
-Use this thread script to mirror a **receptionist surface** similar in spirit to [Sully.ai — AI Receptionist](https://www.sully.ai/agents/receptionist). Everything below is **stubbed or copy-only**; say so out loud in demos.
+Use this to mirror a **receptionist surface** similar in spirit to [Sully.ai — AI Receptionist](https://www.sully.ai/agents/receptionist). For the full capability list and expected behavior, use the canonical section above: **AI receptionist capabilities**.
 
-1. **Schedule + alternatives** — Ask for slots; bot returns a hold id, **primary** slot, and **alternates** from clinic config.
-2. **Insurance** — Ask to verify eligibility; bot returns a mock payer-style line (`insurance_eligibility_check`).
-3. **Reschedule / cancel / waitlist** — Use `appointment_change`; if details are missing, bot walks **multi-turn** questions, then returns a stub change or waitlist id.
-4. **Draft patient SMS/email** — Ask for a reminder or directions text; bot returns **draft only** (`patient_comm_draft` — nothing is sent).
-5. **Care navigation** — Ask who should own a question; bot returns a **stub routing** suggestion (`care_navigation`).
-6. **Pre-visit intake** — Trigger `pre_visit_intake`; answer meds → allergies → pharmacy; bot returns bundle + EHR **stub** refs.
-7. **Slack reminder** — “in 2 minutes” style → `chat.scheduleMessage`.
-8. **FAQ** — Snippet or short Ollama answer.
-9. **Policy red line** — A message matching configured patterns (e.g. crisis-style phrases) → **forced handoff** without running normal routing.
-10. **Low confidence / human** — Same handoff path as before.
+Suggested demo flow order:
+
+1. Availability/scheduling
+2. Insurance check
+3. Appointment changes
+4. Patient comm draft
+5. Care navigation
+6. Pre-visit intake
+7. Reminder
+8. FAQ
+9. Policy red-line escalation
+10. Low-confidence/human handoff
 
 **Non-goals:** no PHI-grade compliance review, no real calendar/EHR/payer/SMS, API keys via env only.
 
-## Quick start
+## How the Slackbot runs
 
-1. Install [Ollama](https://ollama.com) and pull the model:
+### Local runtime
 
-```bash
-ollama pull llama3.2:latest
-ollama serve   # if not already running
-```
+- Bot process runs on your machine (`npm run dev` or `make dev`).
+- Default LLM path is local Ollama (`OLLAMA_HOST=http://127.0.0.1:11434`).
+- If configured, Gemini is attempted first; Ollama is fallback.
 
-2. Configure Slack + optional overrides in `.env`:
+### Render runtime (cloud/shared)
 
-```bash
-cp .env.example .env
-# Fill Slack vars; Ollama defaults to http://127.0.0.1:11434 and llama3.2:latest
-npm install
-npm run dev
-```
-
-Or start **Ollama + optional Whisper venv check + bot** in one step (requires `make` and `curl`):
-
-```bash
-make dev
-```
-
-See `make help` for `pull`, `ollama-up`, and `whisper-check`.
-
-Production-ish run after build:
-
-```bash
-npm run build
-npm start
-```
+- Bot process runs continuously in Render so the team can use Slack without your local machine.
+- Same app code and router are used as local; only env values and secrets differ.
+- For hosted operation, use:
+  - `render.yaml`
+  - `.env.production.example`
+  - `docs/render-deployment.md`
+  - `docs/slack-smoke-checklist.md`
+  - `docs/ops-hardening-checklist.md`
 
 ### Local vs Render at a glance
 
@@ -187,14 +175,6 @@ npm start
   - Deploy from this repo (recommended via `render.yaml`)
   - Set production env vars from `.env.production.example`
   - Use Render logs/health checks + Slack smoke checklist for verification
-
-### Slack app setup (summary)
-
-1. Create a Slack app; enable **Socket Mode**; generate **App-Level Token** with `connections:write`.
-2. **Bot Token Scopes:** `chat:write`, `channels:history`, `groups:history`, `im:history`, `mpim:history`, `app_mentions:read`, `users:read` (adjust to your channels). For **voice/audio messages**, add **`files:read`** so the bot can download clips from `url_private`.
-3. **Voice (optional):** **Local (no API bill):** install **ffmpeg**, create a Python venv with `pip install faster-whisper`, set **`FASTER_WHISPER_PYTHON`** to that venv’s `python3` (see [`.env.example`](.env.example)). The bot runs [`scripts/transcribe_faster_whisper.py`](scripts/transcribe_faster_whisper.py). **Cloud fallback:** set `WHISPER_API_KEY` or `OPENAI_API_KEY` — used if local is unset or fails. NLU stays **Ollama**; only STT uses Python or the Whisper HTTP API.
-4. Subscribe to **`message.channels`** (and/or groups/IM as needed) under **Event Subscriptions** — not required for Socket Mode event delivery beyond installing the app.
-5. Install the app to your workspace; invite the bot to the demo channel.
 
 ## Metrics (automated &lt; 30s story)
 
