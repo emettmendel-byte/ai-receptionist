@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { normalizeSlotLabel } from "./appointments.js";
 
 export type ClinicConfig = {
   timezone?: string;
@@ -44,20 +45,55 @@ export type SlotSuggestions = {
   note: string;
 };
 
-/** Read-only stub: primary + alternate slots from clinic JSON (Sully-style “best + alternatives”). */
-export function getSlotSuggestions(input: { whenHint?: string }): SlotSuggestions {
+/** Ordered candidates: user hint first, then config primary, then alternates (deduped by normalized label). */
+export function buildSlotCandidates(whenHint?: string): string[] {
   const c = loadClinicConfig();
+  const hint = whenHint?.trim();
   const primary =
-    input.whenHint?.trim() ||
-    c.primary_slot_hint ||
-    "Thu 10:30am ET (CCM telehealth)";
+    hint || c.primary_slot_hint || "Thu 10:30am ET (CCM telehealth)";
   const alternates =
     c.alternate_slots?.length ? [...c.alternate_slots] : ["Fri 2:00pm ET", "Mon 9:00am ET"];
+  const ordered = [primary, ...alternates];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const s of ordered) {
+    const k = normalizeSlotLabel(s);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push(s.trim());
+  }
+  return out;
+}
+
+/**
+ * Primary + alternates from clinic JSON; skips slots already booked (normalized match).
+ * When `bookedSlots` is omitted, no filtering (backward compatible for tests).
+ */
+export function getSlotSuggestions(input: {
+  whenHint?: string;
+  bookedSlots?: Set<string>;
+}): SlotSuggestions {
+  const c = loadClinicConfig();
+  const candidates = buildSlotCandidates(input.whenHint);
+  const booked = input.bookedSlots ?? new Set<string>();
+
+  const free = candidates.filter((s) => !booked.has(normalizeSlotLabel(s)));
   const visit_types = c.visit_types?.length ? c.visit_types : ["CCM", "RPM"];
+
+  if (free.length === 0) {
+    return {
+      primary: "",
+      alternates: [],
+      visit_types,
+      note:
+        `_Prototype: no open template slots — all are booked in the local ledger._ See \`${path.basename(clinicHoursPath())}\`.`,
+    };
+  }
+
   return {
-    primary,
-    alternates,
+    primary: free[0],
+    alternates: free.slice(1),
     visit_types,
-    note: `_Prototype: rules from \`${path.basename(clinicHoursPath())}\`; no live calendar._`,
+    note: `_Prototype: open slots exclude times already booked in SQLite._ Config: \`${path.basename(clinicHoursPath())}\`.`,
   };
 }

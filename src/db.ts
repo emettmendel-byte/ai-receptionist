@@ -55,6 +55,19 @@ export function getDb(): Database.Database {
       text_preview TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
+    CREATE TABLE IF NOT EXISTS appointments (
+      id TEXT PRIMARY KEY,
+      slot_label TEXT NOT NULL,
+      patient_ref TEXT,
+      visit_type TEXT,
+      status TEXT NOT NULL DEFAULT 'scheduled',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      session_key TEXT,
+      user_id TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_appt_status ON appointments(status);
+    CREATE INDEX IF NOT EXISTS idx_appt_patient ON appointments(patient_ref, status);
   `);
   _db = db;
   return db;

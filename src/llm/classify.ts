@@ -11,9 +11,10 @@ function transcriptLines(turns: ChatTurn[]): string {
 
 const system = `You are the NLU layer for Greens Health's AI receptionist (CCM/RPM care coordination).
 Classify the user's latest message into exactly one intent from:
-- schedule_inquiry: scheduling, availability, booking, slots, visits
+- availability_inquiry: ONLY asking when/what times are open, what is available, "when can I book" (informational — do NOT treat as a request to book yet)
+- schedule_inquiry: user wants to BOOK, RESERVE, SCHEDULE, HOLD, or CONFIRM a specific visit (commitment language)
 - reminder_trigger: reminders, pings, schedule a Slack reminder, follow-up nudge with timing
-- faq: policies, billing codes, how-to, documentation questions
+- faq: policies, billing codes, how-to, documentation questions, OR meta questions: what the assistant can do, capabilities, "how can you help", "what do you do as a receptionist" (NOT an actual booking/slots request)
 - task_routing: assign work, route to team/billing/nurse/supplies, internal tasks
 - human_escalation: explicit request for human, supervisor, urgency/complaint, discomfort with bot
 - insurance_eligibility_check: verify eligibility, benefits, payer, member ID, coverage before visit
@@ -34,7 +35,11 @@ Rules:
 - confidence should reflect ambiguity; use <0.5 for mixed/unclear requests.
 - For reminder_trigger, capture "when" precisely from user text.
 - human_escalation if they explicitly want a person or express distress about using AI.
-- appointment_change includes cancel, reschedule, and waitlist requests.`;
+- appointment_change includes cancel, reschedule, and waitlist requests.
+- If the user only asks what you can do or how you help (no specific schedule action), use faq — never schedule_inquiry.
+- "When can I book" / "what's available" / "open slots" → availability_inquiry, NOT schedule_inquiry.
+- "Book me" / "schedule an appointment for" / "reserve" → schedule_inquiry.
+- If the user says reschedule, cancel, or waitlist, use appointment_change — never schedule_inquiry.`;
 
 function normalizeIntent(raw: string): IntentId | "unknown" {
   const x = raw.trim() as IntentId;
@@ -67,7 +72,7 @@ export async function classifyTurn(
       entities: { raw_notes: latestUserText },
       needs_clarification: true,
       clarification_question:
-        "I could not parse that reliably — what would you like me to do (schedule, insurance check, appointment change, intake, draft patient message, care navigation, remind, FAQ, route a task, or speak with someone)?",
+        "I could not parse that reliably — what would you like me to do (see open times, book an appointment, insurance check, appointment change, intake, draft patient message, care navigation, remind, FAQ, route a task, or speak with someone)?",
     };
   }
 

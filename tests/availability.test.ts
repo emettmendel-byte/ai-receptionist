@@ -3,6 +3,7 @@ import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { normalizeSlotLabel } from "../src/appointments.js";
 import { getSlotSuggestions } from "../src/availability.js";
 
 describe("availability (clinic rules stub)", () => {
@@ -40,5 +41,12 @@ describe("availability (clinic rules stub)", () => {
   it("getSlotSuggestions prefers whenHint for primary display", () => {
     const s = getSlotSuggestions({ whenHint: "Tuesday 9am" });
     expect(s.primary).toBe("Tuesday 9am");
+  });
+
+  it("getSlotSuggestions skips booked template slots", () => {
+    const booked = new Set<string>([normalizeSlotLabel("Custom primary")]);
+    const s = getSlotSuggestions({ whenHint: "", bookedSlots: booked });
+    expect(s.primary).toBe("Alt A");
+    expect(s.alternates).toEqual(["Alt B"]);
   });
 });

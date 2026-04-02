@@ -4,7 +4,7 @@
  * **Input**
  * - `criterion`: natural-language rubric (what “pass” means for this scenario).
  * - `userMessage`: the raw user text that was classified.
- * - `actual`: the classifier’s structured output (typically `Classification` JSON).
+ * - `actual`: structured or textual output produced by the feature under test.
  *
  * **Output**
  * - Calls Ollama `POST /api/chat` with `format: "json"` and parses `{ pass, score, reasoning }`.
@@ -43,17 +43,19 @@ export async function llmAsJudge(input: {
         {
           role: "system",
           content:
-            "You grade NLU outputs for a healthcare receptionist bot. " +
-            "Be strict but fair: pass only if the actual output clearly satisfies the criterion. " +
+            "You grade outputs for a healthcare receptionist bot using literal evidence only. " +
+            "Do not hallucinate missing fields. If a field/value is present in Actual output, treat it as present. " +
+            "Pass only when every required condition in the criterion is satisfied. " +
+            "If a criterion asks for contains/includes, check exact text snippets in Actual output. " +
             "Respond with JSON only: {\"pass\": boolean, \"score\": number between 0 and 1, \"reasoning\": string (one or two sentences)}.",
         },
         {
           role: "user",
           content:
-            `Criterion:\n${input.criterion}\n\nUser message:\n${input.userMessage}\n\nActual NLU JSON:\n${actualStr}`,
+            `Criterion:\n${input.criterion}\n\nUser message:\n${input.userMessage}\n\nActual output:\n${actualStr}`,
         },
       ],
-      options: { temperature: 0.1, num_predict: 256 },
+      options: { temperature: 0, num_predict: 256 },
     }),
   });
 

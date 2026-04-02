@@ -1,6 +1,12 @@
+import {
+  cancelAppointmentByRef,
+  listActiveBookedSlotKeys,
+  rescheduleAppointmentByRef,
+} from "../appointments.js";
+import { listOpenCalendarSlots, pickOpenSlotForRescheduleHint } from "../calendarSlots.js";
 import type { AppointmentFlowState } from "../types.js";
 import type { EntityMap } from "../types.js";
-import { stubAppointmentChange, stubWaitlistRequest } from "../tools.js";
+import { stubWaitlistRequest } from "../tools.js";
 
 function detectAction(text: string): AppointmentFlowState["action"] | undefined {
   const t = text.toLowerCase();
@@ -18,6 +24,8 @@ function detectAppointmentRef(text: string, entities: EntityMap): string | undef
   if (m) return m[0].toUpperCase();
   const m2 = text.match(/\b(?:appt|appointment)\s*#?\s*([A-Z0-9-]{4,})\b/i);
   if (m2) return m2[1].toUpperCase();
+  const mapt = text.match(/\bGH-APT-[A-F0-9]+\b/i);
+  if (mapt) return mapt[0].toUpperCase();
   return undefined;
 }
 
@@ -25,10 +33,15 @@ function needsWhen(action: AppointmentFlowState["action"]): boolean {
   return action === "reschedule" || action === "waitlist";
 }
 
-function parsePrefill(text: string, entities: EntityMap): AppointmentFlowState {
+function parsePrefill(
+  text: string,
+  entities: EntityMap,
+  lastBookedAppointmentId?: string | null,
+): AppointmentFlowState {
   return {
     action: detectAction(text) ?? detectAction(`${entities.what ?? ""} ${entities.raw_notes ?? ""}`),
-    appointment_id: detectAppointmentRef(text, entities),
+    appointment_id:
+      detectAppointmentRef(text, entities) ?? (lastBookedAppointmentId?.trim() || undefined),
     when_hint: entities.when?.trim(),
   };
 }
@@ -50,8 +63,11 @@ export function advanceAppointmentFlow(
   existing: AppointmentFlowState | undefined,
   userText: string,
   entities: EntityMap,
+  lastBookedAppointmentId?: string | null,
 ): AppointmentFlowResult {
-  let flow: AppointmentFlowState = existing ? { ...existing } : parsePrefill(userText, entities);
+  let flow: AppointmentFlowState = existing
+    ? { ...existing }
+    : parsePrefill(userText, entities, lastBookedAppointmentId);
 
   if (existing) {
     const t = userText.trim();
@@ -87,11 +103,11 @@ export function advanceAppointmentFlow(
     };
   }
 
-  const when = (flow.when_hint ?? "").trim() || "—";
+  const whenRaw = (flow.when_hint ?? "").trim() || "—";
   if (flow.action === "waitlist") {
     const w = stubWaitlistRequest({
       appointment_id: flow.appointment_id,
-      when_hint: when,
+      when_hint: whenRaw,
       raw_notes: entities.raw_notes ?? userText,
     });
     return {
@@ -99,26 +115,67 @@ export function advanceAppointmentFlow(
         `*Waitlist (stub: \`waitlist_request\`)*\n` +
         `• Request ID: \`${w.request_id}\`\n` +
         `• Ref: \`${flow.appointment_id}\`\n` +
-        `• Preference: ${when}\n` +
+        `• Preference: ${whenRaw}\n` +
         `_${w.note}_`,
       flow: null,
     };
   }
 
-  const r = stubAppointmentChange({
-    action: flow.action,
-    appointment_id: flow.appointment_id,
-    when_hint: when,
-    raw_notes: entities.raw_notes ?? userText,
-  });
+  if (flow.action === "cancel") {
+    const cr = cancelAppointmentByRef(flow.appointment_id);
+    if (!cr.ok) {
+      return {
+        message:
+          `No *active* appointment found for \`${flow.appointment_id}\`. ` +
+          `Use the \`GH-APT-…\` id from your booking confirmation, or the patient ref \`GH-xxxx\` if it was stored.`,
+        flow: null,
+      };
+    }
+    return {
+      message:
+        `*Appointment cancelled*\n` +
+        `• ID: \`${cr.id}\`\n` +
+        `• Released slot: _${cr.slot_label}_\n` +
+        `_Slot is free again in the local SQLite ledger (demo)._`,
+      flow: null,
+    };
+  }
+
+  const open = listOpenCalendarSlots({ bookedSlotLabels: listActiveBookedSlotKeys() });
+  const picked = pickOpenSlotForRescheduleHint(whenRaw, open);
+  if (!picked) {
+    return {
+      message:
+        `No matching *open* slot in the demo calendar for “${whenRaw}”. ` +
+        `Try another day (e.g. next Monday afternoon) or ask for *available times* first.`,
+      flow,
+    };
+  }
+
+  const rr = rescheduleAppointmentByRef(flow.appointment_id, picked.key);
+  if (!rr.ok) {
+    if (rr.reason === "slot_taken") {
+      return {
+        message:
+          `That time is *already booked*. Send a different window (e.g. another day or pick from open template slots).`,
+        flow,
+      };
+    }
+    return {
+      message:
+        `Could not reschedule \`${flow.appointment_id}\` — not found or invalid time. ` +
+        `Confirm the \`GH-APT-…\` id or patient ref.`,
+      flow: null,
+    };
+  }
+
   return {
     message:
-      `*Appointment change (stub: \`appointment_change\`)*\n` +
-      `• Change ID: \`${r.change_id}\`\n` +
-      `• Action: \`${flow.action}\`\n` +
-      `• Ref: \`${flow.appointment_id}\`\n` +
-      `• When / context: ${when}\n` +
-      `_${r.ehr_stub}_`,
+      `*Appointment rescheduled*\n` +
+      `• ID: \`${rr.id}\`\n` +
+      `• Change ref: \`${rr.change_id}\`\n` +
+      `• New time: _${picked.label}_\n` +
+      `_Updated in local SQLite; EHR not connected._`,
     flow: null,
   };
 }

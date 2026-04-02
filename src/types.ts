@@ -49,6 +49,8 @@ export type SessionState = {
   turns: ChatTurn[];
   clarify_count: number;
   last_intent?: IntentId | "unknown";
+  /** Last `GH-APT-…` booked in this thread (for “reschedule this” without id). */
+  last_booked_appointment_id?: string | null;
   /** Active multi-turn appointment change; set `null` to clear when saving. */
   appointment_flow?: AppointmentFlowState | null;
   /** Active pre-visit intake; set `null` to clear when saving. */

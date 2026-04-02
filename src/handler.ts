@@ -1,23 +1,32 @@
 import type { App, SayFn } from "@slack/bolt";
+import {
+  bookAppointment,
+  listActiveBookedSlotKeys,
+} from "./appointments.js";
 import { appendAudit } from "./auditLog.js";
-import { getSlotSuggestions } from "./availability.js";
+import { loadClinicConfig } from "./availability.js";
+import {
+  formatSlotsForSlack,
+  listOpenCalendarSlots,
+  pickOpenSlotForBooking,
+} from "./calendarSlots.js";
 import { config } from "./config.js";
 import { advanceAppointmentFlow } from "./flows/appointmentFlow.js";
 import { continueIntakeFlow, startIntakeFlow } from "./flows/intakeFlow.js";
 import { formatHandoffPackage } from "./escalation.js";
-import { matchFaqSnippet } from "./faq.js";
+import { matchFaqSnippet, matchReceptionistCapabilities } from "./faq.js";
 import { classifyTurn } from "./llm/classify.js";
 import { answerFaqGeneric } from "./llm/faqLlm.js";
 import { logMetric } from "./metrics.js";
 import { phiHeuristicFlag } from "./phiHeuristic.js";
 import { matchesPolicyRedline } from "./policyRedlines.js";
+import { patchSchedulingClassification, shouldCommitBooking } from "./scheduleRouting.js";
 import { resolvePostAt } from "./reminderParse.js";
 import { scheduleSlackReminder } from "./scheduler.js";
 import { appendTurn, loadSession, saveSession, sessionKey } from "./sessionStore.js";
 import {
   stubCareNavigation,
   stubCheckInsuranceEligibility,
-  stubCreateScheduleHold,
   stubLogInternalTask,
   stubPatientCommDraft,
 } from "./tools.js";
@@ -168,7 +177,12 @@ export async function handleUserMessage(params: {
   }
 
   if (state.appointment_flow) {
-    const r = advanceAppointmentFlow(state.appointment_flow, params.text, {});
+    const r = advanceAppointmentFlow(
+      state.appointment_flow,
+      params.text,
+      {},
+      state.last_booked_appointment_id ?? null,
+    );
     state.appointment_flow = r.flow ?? null;
     state.clarify_count = 0;
     saveSession(key, state);
@@ -219,7 +233,36 @@ export async function handleUserMessage(params: {
     return;
   }
 
-  const classification = await classifyTurn(state.turns, params.text);
+  const capabilitiesReply = matchReceptionistCapabilities(params.text);
+  if (capabilitiesReply) {
+    state.clarify_count = 0;
+    state.last_intent = "faq";
+    saveSession(key, state);
+    await params.say({ text: capabilitiesReply, thread_ts: pThread });
+    appendTurn(key, "assistant", capabilitiesReply);
+    const capClassification: Classification = {
+      intent: "faq",
+      confidence: 1,
+      entities: { raw_notes: "capabilities_overview" },
+      needs_clarification: false,
+      rationale: "Matched meta/capabilities patterns (not schedule_inquiry)",
+    };
+    const replied = new Date().toISOString();
+    logMetric({
+      session_key: key,
+      intent: "faq",
+      confidence: 1,
+      started_at: startedAt,
+      replied_at: replied,
+      latency_ms: Date.now() - Date.parse(startedAt),
+      path: "automated",
+    });
+    audit(key, params.bodyUserId, capClassification, "automated", "capabilities_overview", params.text);
+    return;
+  }
+
+  let classification = await classifyTurn(state.turns, params.text);
+  classification = patchSchedulingClassification(params.text, classification);
   state.last_intent =
     classification.intent !== "unknown" ? classification.intent : state.last_intent;
 
@@ -300,9 +343,11 @@ export async function handleUserMessage(params: {
     userId: params.bodyUserId,
     channelId: params.channelId,
     threadTs: pThread,
+    sessionKey: key,
     client: params.app.client,
     appointment_flow: state.appointment_flow ?? undefined,
     intake_flow: state.intake_flow ?? undefined,
+    lastBookedAppointmentId: state.last_booked_appointment_id ?? undefined,
   });
 
   state.clarify_count = 0;
@@ -311,6 +356,9 @@ export async function handleUserMessage(params: {
   }
   if ("intake_flow" in reply) {
     state.intake_flow = reply.intake_flow ?? null;
+  }
+  if (reply.last_booked_appointment_id !== undefined) {
+    state.last_booked_appointment_id = reply.last_booked_appointment_id;
   }
   saveSession(key, state);
   await params.say({ text: reply.text, thread_ts: pThread });
@@ -340,6 +388,7 @@ type RouteReply = {
   text: string;
   appointment_flow?: SessionState["appointment_flow"];
   intake_flow?: SessionState["intake_flow"];
+  last_booked_appointment_id?: string | null;
 };
 
 async function routeIntent(args: {
@@ -348,30 +397,85 @@ async function routeIntent(args: {
   userId: string;
   channelId: string;
   threadTs: string;
+  sessionKey: string;
   client: App["client"];
   appointment_flow?: SessionState["appointment_flow"];
   intake_flow?: SessionState["intake_flow"];
+  lastBookedAppointmentId?: string | null;
 }): Promise<RouteReply> {
   const c = args.classification;
   switch (c.intent) {
-    case "schedule_inquiry": {
-      const slots = getSlotSuggestions({ whenHint: c.entities.when });
-      const hold = stubCreateScheduleHold({
-        who: c.entities.who,
-        when: slots.primary,
-        what: c.entities.what,
-      });
-      const alt = slots.alternates.map((s) => `• ${s}`).join("\n");
+    case "availability_inquiry": {
+      const open = listOpenCalendarSlots({ bookedSlotLabels: listActiveBookedSlotKeys() });
+      const vt = loadClinicConfig().visit_types?.join(", ") ?? "CCM, RPM";
       return {
         text:
-          `*Schedule inquiry (stub tools: \`create_schedule_hold\` + clinic rules)*\n` +
-          `• Hold ID: \`${hold.hold_id}\`\n` +
-          `• *Primary slot:* ${slots.primary}\n` +
-          `• *Alternates:*\n${alt}\n` +
-          `• Visit types (config): ${slots.visit_types.join(", ")}\n` +
-          `• _${hold.ehr_stub}_\n` +
-          `${slots.note}\n` +
-          `Next: coordinator confirms with patient; EHR sync is not wired in this prototype.`,
+          `*Open appointments* (demo calendar, ${loadClinicConfig().timezone ?? "America/New_York"})\n` +
+          `_These are generated from clinic blocks in config — not a live EHR calendar._\n\n` +
+          `${formatSlotsForSlack(open)}\n\n` +
+          `Visit types: ${vt}\n` +
+          `_To **book**, say e.g. *Book me* + copy a line above, or *Schedule me for Monday morning*._`,
+      };
+    }
+    case "schedule_inquiry": {
+      const booked = listActiveBookedSlotKeys();
+      const open = listOpenCalendarSlots({ bookedSlotLabels: booked });
+      const picked = pickOpenSlotForBooking(args.rawText, c.entities.when, open);
+
+      if (!shouldCommitBooking(args.rawText, picked)) {
+        return {
+          text:
+            `*Not booking yet* — I only reserve a slot when you ask to *book* / *schedule* / *reserve* (or paste a specific time from the list).\n\n` +
+            `*Currently open times:*\n${formatSlotsForSlack(open)}\n\n` +
+            `_Example: *Book me on Mon Apr 7 at 10:30am* or *Schedule an appointment for patient GH-1234 Tuesday afternoon*._`,
+        };
+      }
+
+      if (!picked) {
+        return {
+          text:
+            `*Pick a concrete time*\n` +
+            `I couldn’t match that to an open slot. Choose one of these (then say *book* + the line):\n\n` +
+            `${formatSlotsForSlack(open)}`,
+        };
+      }
+
+      const patientRef =
+        c.entities.patient_id?.trim() || c.entities.who?.trim() || null;
+      const book = bookAppointment({
+        slotLabel: picked.key,
+        patientRef,
+        visitType: c.entities.what?.trim() || null,
+        sessionKey: args.sessionKey,
+        userId: args.userId,
+      });
+
+      if (!book.ok) {
+        if (book.reason === "slot_taken") {
+          return {
+            text:
+              `That slot was just taken — try another line from *open times* or ask what’s *available*.`,
+          };
+        }
+        return { text: `Could not book (${book.reason}).` };
+      }
+
+      const bookedNow = listActiveBookedSlotKeys();
+      const remaining = listOpenCalendarSlots({ bookedSlotLabels: bookedNow });
+      const alt = formatSlotsForSlack(remaining, 5);
+      const vt = loadClinicConfig().visit_types?.join(", ") ?? "CCM, RPM";
+
+      return {
+        text:
+          `*Appointment booked* (SQLite ledger)\n` +
+          `• Appointment ID: \`${book.id}\`\n` +
+          `• Time: _${picked.label}_ (held in the demo calendar)\n` +
+          `• Patient / ref: ${patientRef ? `\`${patientRef}\`` : "_not specified — include GH-xxxx next time_"}\n` +
+          `• Visit context: ${c.entities.what?.trim() || "_general inquiry_"}\n` +
+          `• Visit types (config): ${vt}\n\n` +
+          `*Other open times:*\n${alt}\n\n` +
+          `_Cancel / reschedule: use \`GH-APT-…\` or say *reschedule this appointment* in this thread._`,
+        last_booked_appointment_id: book.id,
       };
     }
     case "reminder_trigger": {
@@ -444,6 +548,7 @@ async function routeIntent(args: {
         args.appointment_flow ?? undefined,
         args.rawText,
         c.entities,
+        args.lastBookedAppointmentId ?? null,
       );
       return { text: r.message, appointment_flow: r.flow };
     }

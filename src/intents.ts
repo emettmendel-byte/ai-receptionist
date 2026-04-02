@@ -2,6 +2,7 @@
  * Intent categories for Greens Health receptionist (CCM/RPM + Sully-style surface stubs).
  */
 export const INTENT_IDS = [
+  "availability_inquiry",
   "schedule_inquiry",
   "reminder_trigger",
   "faq",
@@ -18,10 +19,16 @@ export type IntentId = (typeof INTENT_IDS)[number];
 
 /** Golden + paraphrase examples for demos and regression. */
 export const GOLDEN_PHRASES: Record<IntentId, string[]> = {
+  availability_inquiry: [
+    "When can I book an appointment?",
+    "What times are available this week?",
+    "Do you have any open slots for telehealth?",
+    "Show me available appointment times.",
+  ],
   schedule_inquiry: [
-    "Can we book a follow-up CCM visit for Mrs. Chen sometime next Tuesday morning?",
-    "What slots do we have for an RPM check-in this week?",
-    "Patient needs a telehealth slot — earliest available?",
+    "Book a follow-up CCM visit for Mrs. Chen next Tuesday morning.",
+    "Schedule me for the earliest RPM telehealth slot you have.",
+    "Reserve an appointment for patient GH-2201 on Monday afternoon.",
   ],
   reminder_trigger: [
     "Send me a Slack reminder in 2 minutes to call the patient about their meds.",
@@ -32,6 +39,8 @@ export const GOLDEN_PHRASES: Record<IntentId, string[]> = {
     "What's our policy on documenting RPM time over 20 minutes?",
     "How do I bill CPT 99457 for CCM?",
     "Where do coordinators log escalations in Greens?",
+    "What can you do as a receptionist?",
+    "How can you help me in this channel?",
   ],
   task_routing: [
     "Route this to the billing queue — question about RPM reimbursement.",

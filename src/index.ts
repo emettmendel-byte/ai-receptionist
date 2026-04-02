@@ -2,6 +2,7 @@ import { App } from "@slack/bolt";
 import { assertSlackEnv, config } from "./config.js";
 import { flushDueReminders } from "./scheduler.js";
 import { handleUserMessage } from "./handler.js";
+import { shouldProcessInboundMessage } from "./messageDedupe.js";
 import { resolveInboundMessageText } from "./voice/messageText.js";
 
 assertSlackEnv();
@@ -40,6 +41,10 @@ app.message(async ({ message, say, context }) => {
 
   const bodyUserId =
     typeof context.userId === "string" && context.userId ? context.userId : message.user;
+
+  if (!shouldProcessInboundMessage({ channelId, messageTs: ts, userId: bodyUserId })) {
+    return;
+  }
 
   const resolved = await resolveInboundMessageText(
     message as unknown as Record<string, unknown>,

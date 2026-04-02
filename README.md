@@ -15,6 +15,21 @@ Demo-quality Slack bot for care coordination: intent classification with confide
 | Tool use | Stubs in [`src/tools.ts`](src/tools.ts); router in [`src/handler.ts`](src/handler.ts) |
 | Voice (optional) | Audio → **local** [`scripts/transcribe_faster_whisper.py`](scripts/transcribe_faster_whisper.py) via `FASTER_WHISPER_PYTHON`, or **cloud** Whisper API; transcript → same NLU as text ([`src/voice/messageText.ts`](src/voice/messageText.ts)) |
 
+## AI receptionist capabilities
+
+The prototype receptionist supports the following thread-safe capabilities:
+
+- **Schedule + alternatives:** shows open times, proposes primary + alternates from clinic config, supports booking confirmations.
+- **Insurance eligibility check:** returns mock payer-style eligibility results (`insurance_eligibility_check`).
+- **Appointment changes:** cancel, reschedule, and waitlist with multi-turn follow-up when details are missing.
+- **Patient communication drafts:** creates SMS/email copy only (`patient_comm_draft`) and explicitly does not send.
+- **Care navigation:** suggests which internal team should own a request (`care_navigation`).
+- **Pre-visit intake:** guided meds → allergies → pharmacy capture, then bundle + EHR stub reference.
+- **Slack reminders:** parses relative timing ("in 2 minutes") and schedules via `chat.scheduleMessage`.
+- **FAQ responses:** returns in-repo snippets when available, or short LLM-generated answers.
+- **Policy red-line safety:** crisis/policy phrases force immediate handoff and bypass normal routing.
+- **Low confidence / human escalation:** unified handoff package with context, rationale, and suggested next action.
+
 ## Sully-style demo narrative (prototype / stub)
 
 Use this thread script to mirror a **receptionist surface** similar in spirit to [Sully.ai — AI Receptionist](https://www.sully.ai/agents/receptionist). Everything below is **stubbed or copy-only**; say so out loud in demos.
@@ -107,7 +122,22 @@ Prints intent/confidence for every golden phrase in [`src/intents.ts`](src/inten
 npm test
 ```
 
-**NLU + LLM-as-judge:** runs [`classifyTurn`](src/llm/classify.ts) on scenario messages, then a second Ollama call scores whether the JSON matches a written rubric ([`tests/support/llmJudge.ts`](tests/support/llmJudge.ts)). Requires Ollama running; uses `OLLAMA_MODEL` (classifier) and optional `JUDGE_MODEL` (defaults to the same).
+**Capabilities + LLM-as-judge:** runs a large scenario suite in [`tests/nlu.judge.test.ts`](tests/nlu.judge.test.ts), where each scenario executes receptionist functionality and sends the **actual output** to a second Ollama judge ([`tests/support/llmJudge.ts`](tests/support/llmJudge.ts)).
+
+Coverage is **30 judged scenarios** (3 each) across:
+
+- schedule alternatives
+- insurance eligibility
+- reschedule/cancel/waitlist
+- patient SMS/email draft
+- care navigation
+- pre-visit intake
+- Slack reminders
+- FAQ behavior
+- policy red-line handoff
+- low-confidence/human handoff
+
+Requires Ollama running; uses `JUDGE_MODEL` when set (otherwise falls back to `OLLAMA_MODEL`).
 
 ```bash
 npm run test:llm
