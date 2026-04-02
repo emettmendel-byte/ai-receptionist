@@ -12,6 +12,60 @@ export const config = {
     return process.env.OLLAMA_MODEL ?? "llama3.2:latest";
   },
   confidenceThreshold: Number(process.env.CONFIDENCE_THRESHOLD ?? "0.65"),
+  get integrationProvider() {
+    return process.env.INTEGRATION_PROVIDER ?? "stub";
+  },
+  get integrationRetries() {
+    return Number(process.env.INTEGRATION_MAX_RETRIES ?? "2");
+  },
+  get integrationRetryBaseMs() {
+    return Number(process.env.INTEGRATION_RETRY_BASE_MS ?? "250");
+  },
+  get integrationCircuitFailures() {
+    return Number(process.env.INTEGRATION_CIRCUIT_FAILURES ?? "3");
+  },
+  get integrationCircuitOpenMs() {
+    return Number(process.env.INTEGRATION_CIRCUIT_OPEN_MS ?? "15000");
+  },
+  get apiServerEnabled() {
+    return process.env.API_SERVER_ENABLED === "1";
+  },
+  get apiServerPort() {
+    return Number(process.env.API_SERVER_PORT ?? "8787");
+  },
+  get apiServerAuthToken() {
+    return process.env.API_SERVER_AUTH_TOKEN ?? "";
+  },
+  get pilotMode() {
+    return process.env.PILOT_MODE ?? "off";
+  },
+  get featureAvailability() {
+    return (process.env.FEATURE_AVAILABILITY ?? "1") === "1";
+  },
+  get featureBooking() {
+    return (process.env.FEATURE_BOOKING ?? "1") === "1";
+  },
+  get featureAppointmentChange() {
+    return (process.env.FEATURE_APPOINTMENT_CHANGE ?? "1") === "1";
+  },
+  get featureEligibility() {
+    return (process.env.FEATURE_ELIGIBILITY ?? "1") === "1";
+  },
+  get featurePatientDraft() {
+    return (process.env.FEATURE_PATIENT_DRAFT ?? "1") === "1";
+  },
+  get featureCareNavigation() {
+    return (process.env.FEATURE_CARE_NAVIGATION ?? "1") === "1";
+  },
+  get featureIntakeSubmit() {
+    return (process.env.FEATURE_INTAKE_SUBMIT ?? "1") === "1";
+  },
+  get featureTaskRouting() {
+    return (process.env.FEATURE_TASK_ROUTING ?? "1") === "1";
+  },
+  get redactLogs() {
+    return (process.env.REDACT_LOGS ?? "1") === "1";
+  },
   get dataDir() {
     return process.env.DATA_DIR ?? "./data";
   },

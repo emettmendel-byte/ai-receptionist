@@ -68,6 +68,26 @@ export function getDb(): Database.Database {
     );
     CREATE INDEX IF NOT EXISTS idx_appt_status ON appointments(status);
     CREATE INDEX IF NOT EXISTS idx_appt_patient ON appointments(patient_ref, status);
+    CREATE TABLE IF NOT EXISTS integration_outbox (
+      id TEXT PRIMARY KEY,
+      topic TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_outbox_status_created ON integration_outbox(status, created_at);
+    CREATE TABLE IF NOT EXISTS idempotency_keys (
+      key TEXT PRIMARY KEY,
+      scope TEXT NOT NULL,
+      response_json TEXT,
+      status TEXT NOT NULL DEFAULT 'in_progress',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_idempotency_scope ON idempotency_keys(scope, created_at);
   `);
   _db = db;
   return db;

@@ -1,4 +1,5 @@
 import { getDb } from "./db.js";
+import { redactText } from "./security.js";
 
 export type AuditEntry = {
   session_key: string;
@@ -32,7 +33,7 @@ export function ensureAuditTable(): void {
 /** Structured demo audit (Sully-style logging story; not HIPAA attestation). */
 export function appendAudit(entry: AuditEntry): void {
   ensureAuditTable();
-  const preview = entry.text_preview.slice(0, 200).replace(/\n/g, " ");
+  const preview = redactText(entry.text_preview.slice(0, 200).replace(/\n/g, " "));
   getDb()
     .prepare(
       `INSERT INTO audit_log(created_at, session_key, user_id, intent, confidence, path, phi_flag, action_summary, text_preview)

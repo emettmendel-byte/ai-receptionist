@@ -30,6 +30,81 @@ The prototype receptionist supports the following thread-safe capabilities:
 - **Policy red-line safety:** crisis/policy phrases force immediate handoff and bypass normal routing.
 - **Low confidence / human escalation:** unified handoff package with context, rationale, and suggested next action.
 
+## Integration-first mode (API-like)
+
+You can run the receptionist as a channel adapter + integration core:
+
+- Slack remains the front door for coordinators.
+- Core actions are centralized in [`src/core/actions.ts`](src/core/actions.ts).
+- Providers are selected via registry in [`src/integrations/registry.ts`](src/integrations/registry.ts).
+- Current implementation ships with `INTEGRATION_PROVIDER=stub`, but provider contracts are defined in [`src/integrations/types.ts`](src/integrations/types.ts) so real adapters can be plugged in with minimal router changes.
+
+Optional HTTP API server (for system-to-system calls):
+
+- `GET /healthz`, `GET /readyz`
+- `GET /availability`
+- `POST /appointments/book`
+- `POST /appointments/change`
+- `POST /eligibility/check`
+- `POST /intake/submit`
+- `POST /drafts/patient-message`
+
+The server is implemented in [`src/apiServer.ts`](src/apiServer.ts) and is enabled with `API_SERVER_ENABLED=1`.
+
+## Continuation plan (demo -> real scenarios via API)
+
+Use this phased plan to move from prototype to real Greens workflows while keeping risk low.
+
+### Phase 0: Keep demo behavior, add observability (week 0-1)
+
+- Run with `INTEGRATION_PROVIDER=stub` and `API_SERVER_ENABLED=1`.
+- Validate API health endpoints (`/healthz`, `/readyz`) from Greens infrastructure.
+- Confirm audit + metrics ingestion from `receptionist_audit` and `receptionist_metric` logs.
+
+### Phase 1: Shadow mode in one clinic (week 1-2)
+
+- Enable `PILOT_MODE=shadow` so mutating actions return shadow IDs and do not write live systems.
+- Have coordinators use Slack as usual; compare bot suggestions vs human actions.
+- Track mismatch categories (intent, slot matching, policy escalation, eligibility details).
+
+### Phase 2: Wire real read-path integrations (week 2-3)
+
+- Implement provider adapters in `src/integrations/` and register in `src/integrations/registry.ts`.
+- Start with read-only/high-confidence endpoints:
+  - `GET /availability` backed by real calendar blocks
+  - `POST /eligibility/check` backed by payer sandbox
+- Keep write operations (`book`, `change`, `intake submit`) in shadow mode.
+
+### Phase 3: Progressive write activation (week 3-5)
+
+- Turn on write paths one by one with feature flags:
+  1. `FEATURE_BOOKING=1`
+  2. `FEATURE_APPOINTMENT_CHANGE=1`
+  3. `FEATURE_INTAKE_SUBMIT=1`
+- Keep idempotency required for all mutating API requests (`Idempotency-Key`).
+- Monitor outbox drain and retry/circuit behavior for each integration.
+
+### Phase 4: Multi-system production rollout (week 5+)
+
+- Expand to additional clinics/teams after stable error and handoff rates.
+- Move secrets to managed secret store, keep `API_SERVER_AUTH_TOKEN` mandatory.
+- Add provider contract tests per adapter and replay tests using anonymized real conversations.
+
+### Real scenario mapping (what to integrate first)
+
+- **Scheduling ops:** map `/availability` + `/appointments/book|change` to calendar/EHR scheduler.
+- **Front-desk insurance:** map `/eligibility/check` to payer clearinghouse API.
+- **Care coordination intake:** map `/intake/submit` to EHR intake/note endpoint.
+- **Patient comms workflow:** keep `/drafts/patient-message` copy-only first, then add approved sender workflow outside bot.
+- **Escalations:** send handoff payloads to Greens triage queue/ticketing system.
+
+### Minimal production checklist
+
+- API auth token enabled, TLS termination in front of API server.
+- `REDACT_LOGS=1` and log sink retention policy reviewed.
+- Feature flags defined per clinic/tenant.
+- Runbook in [`docs/integration-runbook.md`](docs/integration-runbook.md) adopted by on-call + ops.
+
 ## Sully-style demo narrative (prototype / stub)
 
 Use this thread script to mirror a **receptionist surface** similar in spirit to [Sully.ai — AI Receptionist](https://www.sully.ai/agents/receptionist). Everything below is **stubbed or copy-only**; say so out loud in demos.
@@ -162,12 +237,44 @@ flowchart LR
   Router --> Audit[audit_log]
 ```
 
+## Connector model (plug-in your systems)
+
+To integrate Greens systems, implement the provider interfaces in [`src/integrations/types.ts`](src/integrations/types.ts):
+
+- `CalendarProvider` (availability + booking/change)
+- `EligibilityProvider`
+- `PatientMessagingProvider`
+- `CareNavigationProvider`
+- `TaskRoutingProvider`
+- `EhrProvider` (intake submit)
+
+Then:
+
+1. Add your provider implementation under `src/integrations/`.
+2. Register it in [`src/integrations/registry.ts`](src/integrations/registry.ts).
+3. Set `INTEGRATION_PROVIDER=<your-provider>` in env.
+4. Run the existing tests + add provider contract tests for your adapter.
+
+Reliability + safety primitives included:
+
+- idempotency store (`idempotency_keys`) via [`src/integrations/idempotency.ts`](src/integrations/idempotency.ts)
+- retry/circuit logic via [`src/integrations/reliability.ts`](src/integrations/reliability.ts)
+- integration outbox (`integration_outbox`) via [`src/integrations/outbox.ts`](src/integrations/outbox.ts)
+- log redaction helpers via [`src/security.ts`](src/security.ts)
+
+Operational onboarding + staged rollout guidance is in [`docs/integration-runbook.md`](docs/integration-runbook.md).
+
 ## Environment
 
 See [`.env.example`](.env.example). Notable optional keys:
 
 - `CLINIC_HOURS_PATH` — JSON file for slot hints (default: `./config/clinic-hours.sample.json`).
 - `POLICY_REDLINES_PATH` — JSON with `patterns` (forced handoff) and `phi_audit_patterns` (audit flag only).
+- `INTEGRATION_PROVIDER` — provider registry selector (default: `stub`).
+- `API_SERVER_ENABLED`, `API_SERVER_PORT`, `API_SERVER_AUTH_TOKEN` — API mode controls.
+- `INTEGRATION_MAX_RETRIES`, `INTEGRATION_RETRY_BASE_MS`, `INTEGRATION_CIRCUIT_FAILURES`, `INTEGRATION_CIRCUIT_OPEN_MS` — provider reliability controls.
+- `PILOT_MODE` + `FEATURE_*` flags — staged rollout toggles.
+- `REDACT_LOGS` — redact sensitive patterns in logs/audit previews.
 
 ## License
 

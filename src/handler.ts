@@ -25,11 +25,14 @@ import { resolvePostAt } from "./reminderParse.js";
 import { scheduleSlackReminder } from "./scheduler.js";
 import { appendTurn, loadSession, saveSession, sessionKey } from "./sessionStore.js";
 import {
-  stubCareNavigation,
-  stubCheckInsuranceEligibility,
-  stubLogInternalTask,
-  stubPatientCommDraft,
-} from "./tools.js";
+  bookAppointmentAction,
+  careNavigationAction,
+  checkEligibilityAction,
+  createPatientDraftAction,
+  getAvailabilityAction,
+  routeTaskAction,
+  visitTypesSummary,
+} from "./core/actions.js";
 import type { Classification, SessionState } from "./types.js";
 
 function parentThreadTs(threadTs: string | undefined, messageTs: string | undefined): string {
@@ -345,6 +348,7 @@ export async function handleUserMessage(params: {
     threadTs: pThread,
     sessionKey: key,
     client: params.app.client,
+    messageTs: params.messageTs,
     appointment_flow: state.appointment_flow ?? undefined,
     intake_flow: state.intake_flow ?? undefined,
     lastBookedAppointmentId: state.last_booked_appointment_id ?? undefined,
@@ -399,6 +403,7 @@ async function routeIntent(args: {
   threadTs: string;
   sessionKey: string;
   client: App["client"];
+  messageTs: string;
   appointment_flow?: SessionState["appointment_flow"];
   intake_flow?: SessionState["intake_flow"];
   lastBookedAppointmentId?: string | null;
@@ -406,20 +411,31 @@ async function routeIntent(args: {
   const c = args.classification;
   switch (c.intent) {
     case "availability_inquiry": {
-      const open = listOpenCalendarSlots({ bookedSlotLabels: listActiveBookedSlotKeys() });
-      const vt = loadClinicConfig().visit_types?.join(", ") ?? "CCM, RPM";
+      const avail = await getAvailabilityAction({
+        sessionKey: args.sessionKey,
+        actorId: args.userId,
+        authorizationScopes: ["availability:read"],
+      });
+      if (!avail.ok) {
+        return { text: `Could not fetch availability (${avail.error}).` };
+      }
       return {
         text:
           `*Open appointments* (demo calendar, ${loadClinicConfig().timezone ?? "America/New_York"})\n` +
           `_These are generated from clinic blocks in config — not a live EHR calendar._\n\n` +
-          `${formatSlotsForSlack(open)}\n\n` +
-          `Visit types: ${vt}\n` +
+          `${avail.data.summary}\n\n` +
+          `Visit types: ${visitTypesSummary()}\n` +
           `_To **book**, say e.g. *Book me* + copy a line above, or *Schedule me for Monday morning*._`,
       };
     }
     case "schedule_inquiry": {
-      const booked = listActiveBookedSlotKeys();
-      const open = listOpenCalendarSlots({ bookedSlotLabels: booked });
+      const avail = await getAvailabilityAction({
+        sessionKey: args.sessionKey,
+        actorId: args.userId,
+        authorizationScopes: ["availability:read"],
+      });
+      if (!avail.ok) return { text: `Could not fetch availability (${avail.error}).` };
+      const open = avail.data.slots.map((x) => ({ key: x.key, label: x.label }));
       const picked = pickOpenSlotForBooking(args.rawText, c.entities.when, open);
 
       if (!shouldCommitBooking(args.rawText, picked)) {
@@ -442,40 +458,43 @@ async function routeIntent(args: {
 
       const patientRef =
         c.entities.patient_id?.trim() || c.entities.who?.trim() || null;
-      const book = bookAppointment({
-        slotLabel: picked.key,
+      const book = await bookAppointmentAction({
+        sessionKey: args.sessionKey,
+        actorId: args.userId,
+        authorizationScopes: ["booking:write", "availability:read"],
+        idempotencyKey: `${args.messageTs}:schedule_inquiry`,
+      }, {
+        rawText: args.rawText,
+        whenHint: c.entities.when,
         patientRef,
         visitType: c.entities.what?.trim() || null,
-        sessionKey: args.sessionKey,
-        userId: args.userId,
       });
 
       if (!book.ok) {
-        if (book.reason === "slot_taken") {
+        if (book.error.includes("slot")) {
           return {
             text:
               `That slot was just taken — try another line from *open times* or ask what’s *available*.`,
           };
         }
-        return { text: `Could not book (${book.reason}).` };
+        return { text: `Could not book (${book.error}).` };
       }
 
       const bookedNow = listActiveBookedSlotKeys();
       const remaining = listOpenCalendarSlots({ bookedSlotLabels: bookedNow });
       const alt = formatSlotsForSlack(remaining, 5);
-      const vt = loadClinicConfig().visit_types?.join(", ") ?? "CCM, RPM";
 
       return {
         text:
           `*Appointment booked* (SQLite ledger)\n` +
-          `• Appointment ID: \`${book.id}\`\n` +
-          `• Time: _${picked.label}_ (held in the demo calendar)\n` +
+          `• Appointment ID: \`${book.data.appointmentId}\`\n` +
+          `• Time: _${book.data.pickedLabel}_ (held in the demo calendar)\n` +
           `• Patient / ref: ${patientRef ? `\`${patientRef}\`` : "_not specified — include GH-xxxx next time_"}\n` +
           `• Visit context: ${c.entities.what?.trim() || "_general inquiry_"}\n` +
-          `• Visit types (config): ${vt}\n\n` +
+          `• Visit types (config): ${visitTypesSummary()}\n\n` +
           `*Other open times:*\n${alt}\n\n` +
           `_Cancel / reschedule: use \`GH-APT-…\` or say *reschedule this appointment* in this thread._`,
-        last_booked_appointment_id: book.id,
+        last_booked_appointment_id: book.data.appointmentId,
       };
     }
     case "reminder_trigger": {
@@ -514,32 +533,42 @@ async function routeIntent(args: {
       return { text: `*FAQ*\n${body}` };
     }
     case "task_routing": {
-      const t = stubLogInternalTask({
+      const t = await routeTaskAction({
+        sessionKey: args.sessionKey,
+        actorId: args.userId,
+        authorizationScopes: ["task_routing:write"],
+      }, {
         what: c.entities.what,
         who: c.entities.who,
-        raw_notes: c.entities.raw_notes ?? args.rawText,
+        rawNotes: c.entities.raw_notes ?? args.rawText,
       });
+      if (!t.ok) return { text: `Could not route task (${t.error}).` };
       return {
         text:
           `*Task routed (stub tool: \`log_internal_task\`)*\n` +
-          `• Task ID: \`${t.task_id}\`\n` +
-          `• Queue: \`${t.queue}\`\n` +
+          `• Task ID: \`${t.data.taskId}\`\n` +
+          `• Queue: \`${t.data.queue}\`\n` +
           `_Demo only — no ticket system integration._`,
       };
     }
     case "insurance_eligibility_check": {
-      const e = stubCheckInsuranceEligibility({
-        patient_id: c.entities.patient_id,
+      const e = await checkEligibilityAction({
+        sessionKey: args.sessionKey,
+        actorId: args.userId,
+        authorizationScopes: ["eligibility:read"],
+      }, {
+        patientId: c.entities.patient_id,
         payer: c.entities.payer ?? c.entities.what,
-        member_id: c.entities.member_id ?? c.entities.raw_notes,
+        memberId: c.entities.member_id ?? c.entities.raw_notes,
       });
+      if (!e.ok) return { text: `Could not check eligibility (${e.error}).` };
       return {
         text:
           `*Insurance eligibility (stub: \`check_eligibility\`)*\n` +
-          `• Eligibility ID: \`${e.eligibility_id}\`\n` +
-          `• Status: \`${e.status}\`\n` +
-          `• Payer: ${e.payer}\n` +
-          `• ${e.detail}\n` +
+          `• Eligibility ID: \`${e.data.eligibilityId}\`\n` +
+          `• Status: \`${e.data.status}\`\n` +
+          `• Payer: ${e.data.payer}\n` +
+          `• ${e.data.detail}\n` +
           `_Not a real payer response — demo only._`,
       };
     }
@@ -555,28 +584,38 @@ async function routeIntent(args: {
     case "patient_comm_draft": {
       const t = args.rawText.toLowerCase();
       const channel = /\bemail\b/.test(t) ? "email" : "sms";
-      const d = stubPatientCommDraft({
+      const d = await createPatientDraftAction({
+        sessionKey: args.sessionKey,
+        actorId: args.userId,
+        authorizationScopes: ["patient_draft:write"],
+      }, {
         channel,
         purpose: c.entities.what ?? c.entities.raw_notes ?? "update from your care team",
         who: c.entities.who,
         when: c.entities.when,
       });
+      if (!d.ok) return { text: `Could not draft patient communication (${d.error}).` };
       return {
         text:
           `*Patient message draft (stub — not sent)*\n` +
-          `• Draft ID: \`${d.draft_id}\`\n` +
-          `• Channel: \`${d.channel}\`\n` +
-          `\`\`\`\n${d.body}\n\`\`\``,
+          `• Draft ID: \`${d.data.draftId}\`\n` +
+          `• Channel: \`${d.data.channel}\`\n` +
+          `\`\`\`\n${d.data.body}\n\`\`\``,
       };
     }
     case "care_navigation": {
-      const n = stubCareNavigation({ text: args.rawText });
+      const n = await careNavigationAction({
+        sessionKey: args.sessionKey,
+        actorId: args.userId,
+        authorizationScopes: ["care_navigation:read"],
+      }, args.rawText);
+      if (!n.ok) return { text: `Could not route care navigation (${n.error}).` };
       return {
         text:
           `*Care navigation (stub routing table)*\n` +
-          `• Route ID: \`${n.route_id}\`\n` +
-          `• Suggested team: \`${n.team}\`\n` +
-          `• _${n.rationale}_`,
+          `• Route ID: \`${n.data.routeId}\`\n` +
+          `• Suggested team: \`${n.data.team}\`\n` +
+          `• _${n.data.rationale}_`,
       };
     }
     case "pre_visit_intake": {

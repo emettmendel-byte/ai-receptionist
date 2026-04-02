@@ -1,4 +1,5 @@
 import { App } from "@slack/bolt";
+import { startApiServer } from "./apiServer.js";
 import { assertSlackEnv, config } from "./config.js";
 import { flushDueReminders } from "./scheduler.js";
 import { handleUserMessage } from "./handler.js";
@@ -77,3 +78,6 @@ setInterval(() => {
 
 await app.start();
 console.log("Greens Health AI receptionist (socket mode) is running.");
+if (config.apiServerEnabled) {
+  startApiServer();
+}
