@@ -1,0 +1,16 @@
+{
+  "timezone": "America/New_York",
+  "visit_types": ["CCM", "RPM", "telehealth"],
+  "blocks": [
+    { "weekday": 1, "start": "09:00", "end": "12:00", "label": "Mon AM" },
+    { "weekday": 1, "start": "13:00", "end": "17:00", "label": "Mon PM" },
+    { "weekday": 2, "start": "09:00", "end": "17:00", "label": "Tue" },
+    { "weekday": 3, "start": "09:00", "end": "17:00", "label": "Wed" },
+    { "weekday": 4, "start": "09:00", "end": "12:00", "label": "Thu AM" },
+    { "weekday": 4, "start": "13:00", "end": "16:00", "label": "Thu PM" },
+    { "weekday": 5, "start": "09:00", "end": "15:00", "label": "Fri" }
+  ],
+  "slot_length_minutes": 30,
+  "primary_slot_hint": "Thu 10:30am ET",
+  "alternate_slots": ["Fri 2:00pm ET", "Mon 9:00am ET", "Wed 11:00am ET"]
+}

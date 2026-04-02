@@ -1,0 +1,13 @@
+{
+  "description": "Demo-only: if user text matches, force human handoff (Sully-style redlines). Not clinical advice.",
+  "patterns": [
+    "\\bkill\\s+(myself|himself|herself|themselves)\\b",
+    "\\bsuicid",
+    "\\bself[- ]harm\\b",
+    "\\bI want to die\\b"
+  ],
+  "phi_audit_patterns": [
+    "\\b\\d{3}-\\d{2}-\\d{4}\\b",
+    "\\b\\d{3}\\.\\d{2}\\.\\d{4}\\b"
+  ]
+}
