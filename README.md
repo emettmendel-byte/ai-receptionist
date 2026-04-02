@@ -51,6 +51,19 @@ Optional HTTP API server (for system-to-system calls):
 
 The server is implemented in [`src/apiServer.ts`](src/apiServer.ts) and is enabled with `API_SERVER_ENABLED=1`.
 
+For hosted deployment (recommended: Render + Socket Mode), use:
+
+- [`render.yaml`](render.yaml) for service blueprint
+- [`.env.production.example`](.env.production.example) for production env baseline
+- [`docs/render-deployment.md`](docs/render-deployment.md) for step-by-step setup
+- [`docs/slack-smoke-checklist.md`](docs/slack-smoke-checklist.md) for workspace verification
+- [`docs/ops-hardening-checklist.md`](docs/ops-hardening-checklist.md) for alerts, token rotation, and on-call ownership
+
+LLM provider behavior:
+
+- If `GEMINI_API_KEY` is set, the app uses Gemini first (`GEMINI_MODEL` / `GEMINI_API_BASE`).
+- If Gemini fails at runtime, calls automatically fall back to Ollama (`OLLAMA_HOST` / `OLLAMA_MODEL`).
+
 ## Continuation plan (demo -> real scenarios via API)
 
 Use this phased plan to move from prototype to real Greens workflows while keeping risk low.
@@ -263,6 +276,7 @@ Reliability + safety primitives included:
 - log redaction helpers via [`src/security.ts`](src/security.ts)
 
 Operational onboarding + staged rollout guidance is in [`docs/integration-runbook.md`](docs/integration-runbook.md).
+Hosted storage options are documented in [`docs/storage-strategy.md`](docs/storage-strategy.md).
 
 ## Environment
 

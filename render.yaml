@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: greens-ai-receptionist
+    runtime: node
+    plan: starter
+    autoDeploy: true
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    disk:
+      name: receptionist-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: API_SERVER_ENABLED
+        value: "1"
+      - key: API_SERVER_PORT
+        value: "8787"
+      - key: DATA_DIR
+        value: /var/data
+      - key: INTEGRATION_PROVIDER
+        value: stub
+      - key: PILOT_MODE
+        value: shadow
+      - key: REDACT_LOGS
+        value: "1"
+      - key: OLLAMA_MODEL
+        value: llama3.2:latest
+      - key: SLACK_BOT_TOKEN
+        sync: false
+      - key: SLACK_APP_TOKEN
+        sync: false
+      - key: SLACK_SIGNING_SECRET
+        sync: false
+      - key: SLACK_WORKSPACE_DOMAIN
+        sync: false
+      - key: API_SERVER_AUTH_TOKEN
+        sync: false
+      - key: OLLAMA_HOST
+        sync: false

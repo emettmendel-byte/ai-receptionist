@@ -50,3 +50,12 @@ This runbook describes how to onboard Greens systems and run a safe pilot rollou
 - If an integration provider is unstable, switch to `INTEGRATION_PROVIDER=stub`.
 - Keep Slack operational while external systems recover.
 - Review `integration_outbox` and replay pending events after incident.
+
+## 5) Ops ownership and hardening
+
+- Adopt [`docs/ops-hardening-checklist.md`](ops-hardening-checklist.md).
+- Assign token rotation owner and backup owner.
+- Keep rollout-safe defaults:
+  - `PILOT_MODE=shadow` for new environments
+  - `REDACT_LOGS=1`
+  - API authentication token set for hosted endpoints

@@ -11,6 +11,15 @@ export const config = {
   get ollamaModel() {
     return process.env.OLLAMA_MODEL ?? "llama3.2:latest";
   },
+  get geminiApiKey() {
+    return process.env.GEMINI_API_KEY ?? "";
+  },
+  get geminiModel() {
+    return process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
+  },
+  get geminiApiBase() {
+    return process.env.GEMINI_API_BASE ?? "https://generativelanguage.googleapis.com/v1beta";
+  },
   confidenceThreshold: Number(process.env.CONFIDENCE_THRESHOLD ?? "0.65"),
   get integrationProvider() {
     return process.env.INTEGRATION_PROVIDER ?? "stub";
